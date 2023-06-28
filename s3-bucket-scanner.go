@@ -100,7 +100,7 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Printf("failed to list bucket analytics configurations: %+v, %s", err, *bucket.Name)
+			log.Fatalf("failed to list bucket analytics configurations: %+v, %s", err, *bucket.Name)
 			continue
 		}
 
@@ -113,7 +113,7 @@ func main() {
 				},
 			)
 			if err != nil {
-				log.Printf(
+				log.Fatalf(
 					"failed to get bucket analytics configuration: %v, %s",
 					err,
 					*bucket.Name,
@@ -155,10 +155,10 @@ func main() {
 		)
 
 		if err != nil {
-			log.Printf(
+			log.Fatalf(
 				"failed to list bucket intelligent tiering configurations: %v, %s",
 				err,
-				bucket,
+				*bucket.Name,
 			)
 			continue
 		}
@@ -172,10 +172,10 @@ func main() {
 				},
 			)
 			if err != nil {
-				log.Printf(
+				log.Fatalf(
 					"failed to get bucket intelligent tiering configuration: %v, %s",
 					err,
-					bucket,
+					*bucket.Name,
 				)
 				continue
 			}
@@ -194,7 +194,7 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Printf("failed to list bucket inventory configurations: %+v, %s", err, *bucket.Name)
+			log.Fatalf("failed to list bucket inventory configurations: %+v, %s", err, *bucket.Name)
 			continue
 		}
 
@@ -207,7 +207,7 @@ func main() {
 				},
 			)
 			if err != nil {
-				log.Printf(
+				log.Fatalf(
 					"failed to get bucket inventory configuration: %v, %s",
 					err,
 					*bucket.Name,
@@ -259,7 +259,7 @@ func main() {
 		)
 
 		if err != nil {
-			log.Printf("failed to list bucket metrics configurations: %+v, %s", err, *bucket.Name)
+			log.Fatalf("failed to list bucket metrics configurations: %+v, %s", err, *bucket.Name)
 			continue
 		}
 
@@ -272,7 +272,7 @@ func main() {
 				},
 			)
 			if err != nil {
-				log.Printf("failed to get bucket metrics configuration: %+v, %s", err, *bucket.Name)
+				log.Fatalf("failed to get bucket metrics configuration: %+v, %s", err, *bucket.Name)
 				continue
 			}
 
@@ -307,7 +307,7 @@ func main() {
 			log.Fatalf(
 				"failed to get bucket ownership controls configuration: %v, %s",
 				err,
-				bucket.Name,
+				*bucket.Name,
 			)
 		} else {
 			bucketInfo.OwnershipControlsConfig = ownershipControlsConfigResp
@@ -360,7 +360,7 @@ func main() {
 			log.Fatalf(
 				"failed to get bucket request payment configuration: %v, %s",
 				err,
-				bucket.Name,
+				*bucket.Name,
 			)
 		} else {
 			bucketInfo.RequestPaymentConfig = requestPaymentConfigResp
