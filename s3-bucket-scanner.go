@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"golang.org/x/exp/slices"
 )
 
 // BucketInfo represents the information about an S3 bucket
@@ -17,15 +19,15 @@ type BucketInfo struct {
 	Name                     string `json:"name"`
 	AccelerateConfig         *s3.GetBucketAccelerateConfigurationOutput
 	ACL                      *s3.GetBucketAclOutput
-	AnalyticsConfig          *s3.GetBucketAnalyticsConfigurationOutput
+	AnalyticsConfig          []*s3.GetBucketAnalyticsConfigurationOutput
 	CORSConfig               *s3.GetBucketCorsOutput
 	EncryptionConfig         *s3.GetBucketEncryptionOutput
-	IntelligentTieringConfig *s3.GetBucketIntelligentTieringConfigurationOutput
-	InventoryConfig          *s3.GetBucketInventoryConfigurationOutput
+	IntelligentTieringConfig []*s3.GetBucketIntelligentTieringConfigurationOutput
+	InventoryConfig          []*s3.GetBucketInventoryConfigurationOutput
 	LifecycleConfig          *s3.GetBucketLifecycleConfigurationOutput
 	Location                 *s3.GetBucketLocationOutput
 	LoggingConfig            *s3.GetBucketLoggingOutput
-	MetricsConfig            *s3.GetBucketMetricsConfigurationOutput
+	MetricsConfig            []*s3.GetBucketMetricsConfigurationOutput
 	NotificationConfig       *s3.GetBucketNotificationConfigurationOutput
 	OwnershipControlsConfig  *s3.GetBucketOwnershipControlsOutput
 	Policy                   *s3.GetBucketPolicyOutput
@@ -57,6 +59,12 @@ func main() {
 
 	// Iterate over buckets and retrieve information
 	for _, bucket := range resp.Buckets {
+		if slices.Contains(
+			strings.Split(os.Getenv("EXCLUDED_BUCKETS"), ","),
+			aws.ToString(bucket.Name),
+		) {
+			continue
+		}
 		bucketInfo := BucketInfo{
 			Name: aws.ToString(bucket.Name),
 		}
@@ -69,7 +77,7 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Fatalf("failed to get bucket accelerate configuration: %v", err)
+			log.Fatalf("failed to get bucket accelerate configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.AccelerateConfig = accelerateConfigResp
 		}
@@ -79,30 +87,49 @@ func main() {
 			Bucket: bucket.Name,
 		})
 		if err != nil {
-			log.Fatalf("failed to get bucket ACL: %v", err)
+			log.Fatalf("failed to get bucket ACL: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.ACL = aclResp
 		}
 
 		// Get bucket analytics configuration
-		analyticsConfigResp, err := client.GetBucketAnalyticsConfiguration(
+		analyticsConfigurationsResp, err := client.ListBucketAnalyticsConfigurations(
 			context.TODO(),
-			&s3.GetBucketAnalyticsConfigurationInput{
+			&s3.ListBucketAnalyticsConfigurationsInput{
 				Bucket: bucket.Name,
 			},
 		)
 		if err != nil {
-			log.Printf("failed to get bucket analytics configuration: %v", err)
-		} else {
-			bucketInfo.AnalyticsConfig = analyticsConfigResp
+			log.Printf("failed to list bucket analytics configurations: %+v, %s", err, *bucket.Name)
+			continue
+		}
+
+		for _, analyticsConfiguration := range analyticsConfigurationsResp.AnalyticsConfigurationList {
+			analyticsConfigResp, err := client.GetBucketAnalyticsConfiguration(
+				context.TODO(),
+				&s3.GetBucketAnalyticsConfigurationInput{
+					Bucket: bucket.Name,
+					Id:     analyticsConfiguration.Id,
+				},
+			)
+			if err != nil {
+				log.Printf(
+					"failed to get bucket analytics configuration: %v, %s",
+					err,
+					*bucket.Name,
+				)
+				continue
+			}
+
+			bucketInfo.AnalyticsConfig = append(bucketInfo.AnalyticsConfig, analyticsConfigResp)
 		}
 
 		// Get bucket CORS configuration
 		corsConfigResp, err := client.GetBucketCors(context.TODO(), &s3.GetBucketCorsInput{
 			Bucket: bucket.Name,
 		})
-		if err != nil {
-			log.Printf("failed to get bucket CORS configuration: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "NoSuchCORSConfiguration") {
+			log.Fatalf("failed to get bucket CORS configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.CORSConfig = corsConfigResp
 		}
@@ -115,35 +142,80 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Printf("failed to get bucket encryption configuration: %v", err)
+			log.Fatalf("failed to get bucket encryption configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.EncryptionConfig = encryptionConfigResp
 		}
-
 		// Get bucket intelligent tiering configuration
-		intelligentTieringConfigResp, err := client.GetBucketIntelligentTieringConfiguration(
+		intelligentTieringConfigurationsResp, err := client.ListBucketIntelligentTieringConfigurations(
 			context.TODO(),
-			&s3.GetBucketIntelligentTieringConfigurationInput{
+			&s3.ListBucketIntelligentTieringConfigurationsInput{
 				Bucket: bucket.Name,
 			},
 		)
+
 		if err != nil {
-			log.Printf("failed to get bucket intelligent tiering configuration: %v", err)
-		} else {
-			bucketInfo.IntelligentTieringConfig = intelligentTieringConfigResp
+			log.Printf(
+				"failed to list bucket intelligent tiering configurations: %v, %s",
+				err,
+				bucket,
+			)
+			continue
+		}
+
+		for _, intelligentTieringConfiguration := range intelligentTieringConfigurationsResp.IntelligentTieringConfigurationList {
+			intelligentTieringConfigResp, err := client.GetBucketIntelligentTieringConfiguration(
+				context.TODO(),
+				&s3.GetBucketIntelligentTieringConfigurationInput{
+					Bucket: bucket.Name,
+					Id:     intelligentTieringConfiguration.Id,
+				},
+			)
+			if err != nil {
+				log.Printf(
+					"failed to get bucket intelligent tiering configuration: %v, %s",
+					err,
+					bucket,
+				)
+				continue
+			}
+
+			bucketInfo.IntelligentTieringConfig = append(
+				bucketInfo.IntelligentTieringConfig,
+				intelligentTieringConfigResp,
+			)
 		}
 
 		// Get bucket inventory configuration
-		inventoryConfigResp, err := client.GetBucketInventoryConfiguration(
+		inventoryConfigurationsResp, err := client.ListBucketInventoryConfigurations(
 			context.TODO(),
-			&s3.GetBucketInventoryConfigurationInput{
+			&s3.ListBucketInventoryConfigurationsInput{
 				Bucket: bucket.Name,
 			},
 		)
 		if err != nil {
-			log.Printf("failed to get bucket inventory configuration: %v", err)
-		} else {
-			bucketInfo.InventoryConfig = inventoryConfigResp
+			log.Printf("failed to list bucket inventory configurations: %+v, %s", err, *bucket.Name)
+			continue
+		}
+
+		for _, inventoryConfiguration := range inventoryConfigurationsResp.InventoryConfigurationList {
+			inventoryConfigResp, err := client.GetBucketInventoryConfiguration(
+				context.TODO(),
+				&s3.GetBucketInventoryConfigurationInput{
+					Bucket: bucket.Name,
+					Id:     inventoryConfiguration.Id,
+				},
+			)
+			if err != nil {
+				log.Printf(
+					"failed to get bucket inventory configuration: %v, %s",
+					err,
+					*bucket.Name,
+				)
+				continue
+			}
+
+			bucketInfo.InventoryConfig = append(bucketInfo.InventoryConfig, inventoryConfigResp)
 		}
 
 		// Get bucket lifecycle configuration
@@ -153,8 +225,8 @@ func main() {
 				Bucket: bucket.Name,
 			},
 		)
-		if err != nil {
-			log.Printf("failed to get bucket lifecycle configuration: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "NoSuchLifecycleConfiguration") {
+			log.Fatalf("failed to get bucket lifecycle configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.LifecycleConfig = lifecycleConfigResp
 		}
@@ -164,7 +236,7 @@ func main() {
 			Bucket: bucket.Name,
 		})
 		if err != nil {
-			log.Printf("failed to get bucket location: %v", err)
+			log.Fatalf("failed to get bucket location: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.Location = locationResp
 		}
@@ -174,22 +246,37 @@ func main() {
 			Bucket: bucket.Name,
 		})
 		if err != nil {
-			log.Printf("failed to get bucket logging configuration: %v", err)
+			log.Fatalf("failed to get bucket logging configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.LoggingConfig = loggingConfigResp
 		}
-
 		// Get bucket metrics configuration
-		metricsConfigResp, err := client.GetBucketMetricsConfiguration(
+		metricsConfigurationsResp, err := client.ListBucketMetricsConfigurations(
 			context.TODO(),
-			&s3.GetBucketMetricsConfigurationInput{
+			&s3.ListBucketMetricsConfigurationsInput{
 				Bucket: bucket.Name,
 			},
 		)
+
 		if err != nil {
-			log.Printf("failed to get bucket metrics configuration: %v", err)
-		} else {
-			bucketInfo.MetricsConfig = metricsConfigResp
+			log.Printf("failed to list bucket metrics configurations: %+v, %s", err, *bucket.Name)
+			continue
+		}
+
+		for _, metricsConfiguration := range metricsConfigurationsResp.MetricsConfigurationList {
+			metricsConfigResp, err := client.GetBucketMetricsConfiguration(
+				context.TODO(),
+				&s3.GetBucketMetricsConfigurationInput{
+					Bucket: bucket.Name,
+					Id:     metricsConfiguration.Id,
+				},
+			)
+			if err != nil {
+				log.Printf("failed to get bucket metrics configuration: %+v, %s", err, *bucket.Name)
+				continue
+			}
+
+			bucketInfo.MetricsConfig = append(bucketInfo.MetricsConfig, metricsConfigResp)
 		}
 
 		// Get bucket notification configuration
@@ -200,7 +287,11 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Printf("failed to get bucket notification configuration: %v", err)
+			log.Fatalf(
+				"failed to get bucket notification configuration: %+v, %s",
+				err,
+				*bucket.Name,
+			)
 		} else {
 			bucketInfo.NotificationConfig = notificationConfigResp
 		}
@@ -212,8 +303,12 @@ func main() {
 				Bucket: bucket.Name,
 			},
 		)
-		if err != nil {
-			log.Printf("failed to get bucket ownership controls configuration: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "OwnershipControlsNotFoundError") {
+			log.Fatalf(
+				"failed to get bucket ownership controls configuration: %v, %s",
+				err,
+				bucket.Name,
+			)
 		} else {
 			bucketInfo.OwnershipControlsConfig = ownershipControlsConfigResp
 		}
@@ -222,8 +317,8 @@ func main() {
 		policyResp, err := client.GetBucketPolicy(context.TODO(), &s3.GetBucketPolicyInput{
 			Bucket: bucket.Name,
 		})
-		if err != nil {
-			log.Printf("failed to get bucket policy: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "NoSuchBucketPolicy") {
+			log.Fatalf("failed to get bucket policy: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.Policy = policyResp
 		}
@@ -235,8 +330,8 @@ func main() {
 				Bucket: bucket.Name,
 			},
 		)
-		if err != nil {
-			log.Printf("failed to get bucket policy status: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "NoSuchBucketPolicy") {
+			log.Fatalf("failed to get bucket policy status: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.PolicyStatus = policyStatusResp
 		}
@@ -248,8 +343,8 @@ func main() {
 				Bucket: bucket.Name,
 			},
 		)
-		if err != nil {
-			log.Printf("failed to get bucket replication configuration: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "ReplicationConfigurationNotFoundError") {
+			log.Fatalf("failed to get bucket replication configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.ReplicationConfig = replicationConfigResp
 		}
@@ -262,7 +357,11 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Printf("failed to get bucket request payment configuration: %v", err)
+			log.Fatalf(
+				"failed to get bucket request payment configuration: %v, %s",
+				err,
+				bucket.Name,
+			)
 		} else {
 			bucketInfo.RequestPaymentConfig = requestPaymentConfigResp
 		}
@@ -271,8 +370,8 @@ func main() {
 		taggingConfigResp, err := client.GetBucketTagging(context.TODO(), &s3.GetBucketTaggingInput{
 			Bucket: bucket.Name,
 		})
-		if err != nil {
-			log.Printf("failed to get bucket tagging configuration: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "NoSuchTagSet") {
+			log.Fatalf("failed to get bucket tagging configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.TaggingConfig = taggingConfigResp
 		}
@@ -285,7 +384,7 @@ func main() {
 			},
 		)
 		if err != nil {
-			log.Printf("failed to get bucket versioning configuration: %v", err)
+			log.Fatalf("failed to get bucket versioning configuration: %+v, %s", err, *bucket.Name)
 		} else {
 			bucketInfo.VersioningConfig = versioningConfigResp
 		}

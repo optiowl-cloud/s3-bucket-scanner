@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.18.1
 	github.com/aws/aws-sdk-go-v2/config v1.18.27
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.35.0
+	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
 )
 
 require (
